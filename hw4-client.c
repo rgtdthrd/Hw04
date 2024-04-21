@@ -13,17 +13,35 @@
 
 int main()
 {
+  #if 1
   /* create TCP client socket (endpoint) */
   int sd = socket( AF_INET, SOCK_STREAM, 0 );
   if ( sd == -1 ) { perror( "socket() failed" ); exit( EXIT_FAILURE ); }
 
-  struct hostent * hp = gethostbyname( "linux02.cs.rpi.edu" );
-
-#if 0
-  struct hostent * hp = gethostbyname( "128.113.126.39" );
+  //struct hostent * hp = gethostbyname( "linux02.cs.rpi.edu" );
   struct hostent * hp = gethostbyname( "localhost" );
-  struct hostent * hp = gethostbyname( "127.0.0.1" );
-#endif
+  #endif
+  #if 0
+      struct addrinfo hints;
+    struct addrinfo *result, *hp;
+    int sd;
+
+    memset(&hints, 0, sizeof(struct addrinfo));
+    hints.ai_family = AF_INET;      /* Allow IPv4 */
+    hints.ai_socktype = SOCK_STREAM; /* TCP socket */
+    hints.ai_flags = 0;    /* For wildcard IP address */
+    hints.ai_protocol = 0;          /* Any protocol */
+    hints.ai_canonname = NULL;
+    hints.ai_addr = NULL;
+    hints.ai_next = NULL;
+
+    int s = getaddrinfo("linux04.cs.rpi.edu", "8123", &hints, &result);
+    if (s != 0) 
+    {
+      fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+      exit(EXIT_FAILURE);
+    }
+  #endif
 
   /* TO DO: rewrite the code above to use getaddrinfo() */
 
@@ -55,7 +73,7 @@ int main()
 while ( 1 )    /* TO DO: fix the memory leaks! */
 {
   char * buffer = calloc( 9, sizeof( char ) );
-#if 1
+#if 0
   printf("buffer: 0x%p, buffer+1: 0x%p\n", buffer, buffer+1);
   printf("buffer: 0x%p, buffer+1: 0x%p\n", (unsigned int *)(buffer), (unsigned int *)(buffer)+1);
   printf("buffer: 0x%p, buffer+1: 0x%p\n", (unsigned int *)(buffer), (unsigned int *)(buffer+1));
@@ -91,6 +109,19 @@ while ( 1 )    /* TO DO: fix the memory leaks! */
 
     short guesses = ntohs( *(short *)(buffer + 1) );
     printf( " -- %d guess%s remaining\n", guesses, guesses == 1 ? "" : "es" );
+    //if the result does not contain '-' then the word is guessed
+    int flag =0;
+    printf("string size: %ld\n", strlen((const char*)(buffer+3)));
+    for (int i=0; i<5; i++){
+      if (*(buffer+3+i) == '-' || *(buffer+3+i) == '?'){
+        flag = -1;
+        break;
+      }
+    }
+    if (flag == 0){
+      printf( "CLIENT: word guessed!\n" );
+      break;
+    }
     if ( guesses == 0 ) break;
   }
 }
