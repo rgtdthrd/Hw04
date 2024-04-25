@@ -16,32 +16,39 @@ extern int total_guesses;
 extern int total_wins;
 extern int total_losses;
 extern char ** words;
-char* selected_word;
+
 int seed;
 int num_words;
 int port;
 char * filename;
+char** words_played;
+int num_words_played = 0;
 pthread_mutex_t lock;
-void signal_handler( int sig )
-{
-
-	printf("MAIN: SIGUSR1 rcvd; Wordle server shutting down...\n");
-    pthread_mutex_destroy(&lock);
-    printf(" Wordle server shutting down...\n\n");
-    printf(" guesses: %d\n", total_guesses);
-    printf(" wins: %d\n", total_wins);
-    printf(" losses: %d\n\n", total_losses);
-    printf(" word(s) played: %s\n", toUpperCase(selected_word));
-
-    //exit with success
-    exit(EXIT_SUCCESS);
-}
 char* toUpperCase(char *str) {
     char *p = calloc(6, sizeof(char));
     for (int i = 0; i < 5; i++) {
         *(p+i) = toupper(*(str+i));
     }
     return p;
+}
+void signal_handler( int sig)
+{
+	printf("MAIN: SIGUSR1 rcvd; Wordle server shutting down...\n");
+    pthread_mutex_destroy(&lock);
+    printf("MAIN: Wordle server shutting down...\n\n");
+    printf("MAIN: guesses: %d\n", total_guesses);
+    printf("MAIN: wins: %d\n", total_wins);
+    printf("MAIN: losses: %d\n\n", total_losses);
+    printf("MAIN: word(s) played:");
+    for (int i = 0; i < num_words_played; i++){
+        printf(" %s", *(words_played+i));
+        free(*(words_played+i));
+    }
+    free(words_played);
+    printf("\n");
+
+    //exit with success
+    exit(EXIT_SUCCESS);
 }
 void toLowerCase(char *str) {
     for (int i = 0; i < 5; i++) {
@@ -87,8 +94,13 @@ void error_handler(){
 }
 void* thread_func(void * arg){
     int newsd = *(int*)arg;
-    
-    
+    int w = rand() % num_words;
+    char * selected_word = calloc(6, sizeof(char));
+    strcpy(selected_word, *(words+w));
+    *(words_played+num_words_played) = toUpperCase(selected_word);
+    pthread_mutex_lock(&lock);
+    num_words_played++;
+    pthread_mutex_unlock(&lock);
     int n = 0;
     int flag = 0;
     short guesses = 0;
@@ -106,7 +118,7 @@ void* thread_func(void * arg){
         printf("THREAD %ld: rcvd guess: %s\n",pthread_self(), buffer);
         int found = find_word(buffer);
         if (found == 0){
-            printf("THREAD %ld: invalid guess; sending reply: ????? (%d guesses left)\n",pthread_self(), 6-guesses);
+            printf("THREAD %ld: invalid guess; sending reply: ????? (%d guess%s left)\n",pthread_self(),6-guesses, 6-guesses == 1 ? "" : "es");
             strcpy(msg, "N");
             short g = htons(6-guesses);
             memcpy(msg+1, &g, 2);
@@ -115,7 +127,7 @@ void* thread_func(void * arg){
         }else{
             guesses++;
             char* reply = check_words(selected_word, buffer);
-            printf("THREAD %ld: sending reply: %s (%d guesses left)\n",pthread_self(), reply, 6-guesses);
+            printf("THREAD %ld: sending reply: %s (%d guess%s left)\n",pthread_self(), reply, 6-guesses, 6-guesses == 1 ? "" : "es");
             strcpy(msg, "Y");
             short g = htons(6-guesses);
             memcpy(msg+1, &g, 2);
@@ -131,13 +143,14 @@ void* thread_func(void * arg){
         //clear msg
         memset(msg, 0, 9);
     }while(n>0 && flag == 0 && guesses < 6);
-    if (flag == 1 || guesses == 6){
-        char* ret = toUpperCase(selected_word);
-        printf("THREAD %ld: game over; word was %s!\n",pthread_self(), ret);
-        free(ret);
-    }else{
+    
+    char* ret = toUpperCase(selected_word);
+    if (n == 0){
         printf("THREAD %ld: client gave up; closing TCP connection...\n",pthread_self());
     }
+    printf("THREAD %ld: game over; word was %s!\n",pthread_self(), ret);
+    free(ret);
+
     pthread_mutex_lock(&lock);
     if (flag == 1){
         total_wins++;
@@ -150,17 +163,22 @@ void* thread_func(void * arg){
     free(buffer);
     close(newsd);
     //thread exit  
+    free(selected_word);
     return NULL;
 }
 
 int wordle_server( int argc, char ** argv ){
     //signal handling
-    // signal(SIGINT, SIG_IGN);
-    // signal(SIGTERM, SIG_IGN);
-    // signal(SIGUSR2, SIG_IGN);
+    
+    signal(SIGINT, SIG_IGN);
+    signal(SIGTERM, SIG_IGN);
+    signal(SIGUSR2, SIG_IGN);
+    
 
     signal( SIGUSR1, signal_handler);
-    //signal( SIGINT, signal_handler);
+    #if DEBUG
+    signal( SIGINT, signal_handler);
+    #endif
     setvbuf(stdout, NULL, _IONBF, 0);
     //assume argc = 5 USAGE: hw4.out <listener-port> <seed> <word-filename> <num-words>
     if(argc != 5){
@@ -174,6 +192,8 @@ int wordle_server( int argc, char ** argv ){
     if (port <1 || seed <0 || num_words < 0){
         error_handler();
     }
+    //initialize words_played
+    words_played = calloc(10, sizeof(char *));
     words = realloc(words, (num_words+1) * sizeof(char *));
     if(words == NULL){
         error_handler();
@@ -184,7 +204,7 @@ int wordle_server( int argc, char ** argv ){
         perror("fopen() failed");
         return EXIT_FAILURE;
     }
-    printf("MAIN: opened %s (%d words)\n", filename, num_words);
+    printf("MAIN: opened %s (%d word%s)\n", filename, num_words, num_words == 1 ? "" : "s");
     //read words from file
     for(int i = 0; i < num_words; i++){
         *(words+i) = calloc(6, sizeof(char));
@@ -203,8 +223,7 @@ int wordle_server( int argc, char ** argv ){
 
     //seed the random number generator
     srand(seed);
-    int w = rand() % num_words;
-    selected_word = *(words+w);
+    
 
     int sd = socket(AF_INET, SOCK_STREAM, 0); // Create a socket at our IP address.
     if (sd == -1){
@@ -246,7 +265,6 @@ int wordle_server( int argc, char ** argv ){
         pthread_detach(thread);
 
     }
-    
 
     return EXIT_SUCCESS;
 }
