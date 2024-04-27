@@ -123,6 +123,7 @@ void* thread_func(void * arg){
             short g = htons(6-guesses);
             memcpy(msg+1, &g, 2);
             memcpy(msg+3, "?????", 5);
+            printf("Response: %c %d %s\n", *msg, ntohs(*(short *)(msg+1)), msg+3);
             send(newsd, msg, 9, 0);
         }else{
             guesses++;
